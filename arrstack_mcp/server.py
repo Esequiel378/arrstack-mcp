@@ -16,7 +16,7 @@ import argparse
 import logging
 import binascii
 from datetime import datetime, timezone
-from urllib.parse import urlparse, parse_qs, unquote, urljoin
+from urllib.parse import urlparse, parse_qs, quote, unquote, urljoin
 
 import httpx
 from mcp.server.fastmcp import FastMCP
@@ -3331,9 +3331,11 @@ def jellyfin_scan_library() -> str:
 @mcp.tool()
 def seerr_search(term: str) -> str:
     """Search Seerr for movies and TV shows. Returns title, year, media type,
-    TMDB ID, and overview — use the TMDB ID with seerr_request_movie /
-    seerr_request_tv to request it."""
-    data = _seerr("/search", params={"query": term})
+    TMDB ID, library status, and overview — use the TMDB ID with
+    seerr_request_movie / seerr_request_tv to request it."""
+    # httpx's `params=` encodes spaces as "+", which Seerr's /search rejects
+    # ("must be url encoded"); encode the term ourselves (%20) into the path.
+    data = _seerr(f"/search?query={quote(term, safe='')}")
     if isinstance(data, str):
         return data
     lines = []
@@ -3345,8 +3347,11 @@ def seerr_search(term: str) -> str:
         date = r.get("releaseDate") or r.get("firstAirDate") or ""
         year = date[:4] if date else "?"
         overview = (r.get("overview") or "No description.")[:150]
+        media_info = r.get("mediaInfo") or {}
+        status = media_info.get("status", "not requested")
         lines.append(
-            f"• {title} ({year}) [tmdbId: {r.get('id', '?')}, type: {media_type}]\n  {overview}"
+            f"• {title} ({year}) [tmdbId: {r.get('id', '?')}, type: {media_type}, "
+            f"status: {status}]\n  {overview}"
         )
     return "\n".join(lines) or "No results found."
 
