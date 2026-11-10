@@ -118,14 +118,53 @@ class OptionalServiceTests(unittest.TestCase):
         self.assertEqual(kwargs["params"], {"term": "book&apikey=leak"})
 
     @patch("arrstack_mcp.server.httpx.request")
-    def test_seerr_search_uses_structured_params(self, request):
+    def test_seerr_search_url_encodes_term(self, request):
         server.SEERR_URL = "http://seerr:5055"
         request.return_value = response({"results": []})
 
         server.seerr_search("inception&apikey=leak")
 
-        _, kwargs = request.call_args
-        self.assertEqual(kwargs["params"], {"query": "inception&apikey=leak"})
+        args, kwargs = request.call_args
+        self.assertIsNone(kwargs.get("params"))
+        self.assertEqual(args[1], "http://seerr:5055/api/v1/search?query=inception%26apikey%3Dleak")
+
+    @patch("arrstack_mcp.server.httpx.request")
+    def test_seerr_search_encodes_spaces_as_percent20(self, request):
+        server.SEERR_URL = "http://seerr:5055"
+        request.return_value = response({"results": []})
+
+        server.seerr_search("The General")
+
+        args, _ = request.call_args
+        self.assertEqual(args[1], "http://seerr:5055/api/v1/search?query=The%20General")
+
+    @patch("arrstack_mcp.server.httpx.request")
+    def test_seerr_search_reports_media_info_status(self, request):
+        server.SEERR_URL = "http://seerr:5055"
+        request.return_value = response({
+            "results": [
+                {
+                    "mediaType": "movie",
+                    "title": "Night of the Living Dead",
+                    "releaseDate": "1968-10-01",
+                    "id": 12345,
+                    "overview": "Zombies.",
+                    "mediaInfo": {"status": 5},
+                },
+                {
+                    "mediaType": "movie",
+                    "title": "Dune",
+                    "releaseDate": "2021-10-22",
+                    "id": 67890,
+                    "overview": "Sand.",
+                },
+            ]
+        })
+
+        out = server.seerr_search("night of the living dead")
+
+        self.assertIn("status: 5", out)
+        self.assertIn("status: not requested", out)
 
     @patch("arrstack_mcp.server.httpx.request")
     def test_seerr_request_movie_posts_correct_body(self, request):
